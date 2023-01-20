@@ -1,9 +1,11 @@
-﻿<#
-.VERSION 1.0
+<#
+.VERSION 1.1
 1.0 - Initial release
+1.1 - Added Workaround for Conditional Access Policy export Linux error and some missing code from lookup functions regarding locations.
 
 .DESCRIPTION
 This script exports a number of settings from Azure Active Directory to .csv or .json format to quickly be able to review current settings and provide improvements.
+
 This script relies on 3 separate PowerShell modules for the time being.
 As such, you need to have these 3 modules installed to be able to run the script:
 
@@ -81,6 +83,7 @@ Connect-MsolService
 Import-Module AADInternals
 Write-Host "Connecting to Azure AD via AADInternals PowerShell Module." -ForegroundColor Cyan
 Get-AADIntAccessTokenForMSGraph -SaveToCache
+Get-AADIntAccessTokenForAADGraph -SaveToCache
 }
 
 Start-TSxAADReview
@@ -94,7 +97,7 @@ function Export-TSxAdminAccounts{
         )#>
 Write-Host "Gathering Azure AD Admin Accounts" -ForegroundColor Yellow
 $ExportDateTime = Get-Date -Format "MM/dd/yyyy HH:mm:ss K"
-#Inspect current Azure AD admins (if you are using PIM)
+#Inspect current Azure AD admins
 
 # Fetch tenant ID.
 $TenantID = (Get-AzureADTenantDetail).ObjectId
@@ -180,13 +183,16 @@ Export-TSxAdminAccounts
 #Export Conditional Access Policies and Details using PowerShell
 
 function Export-TSxConditionalAccessPolicy{
-    <#param (
-            [parameter(Mandatory = $true)]
-            [array]$OutputPath
-        
-        )#>
+    <#
+        Still throws an error when trying to "Get" a Conditional Access Policy with Linux in Device Conditions.
+        Workaround in place that exports all policies except for Linux one's which are left untouched right now.
+        Will improve in next release.
+    #>
 Write-Host "Gathering Conditional Access Policies" -ForegroundColor Yellow
-$CAPolicies = Get-AzureADMSConditionalAccessPolicy
+$AADIntCAPolicies = Get-AADIntConditionalAccessPolicies | Where-Object displayName -NE "Default Policy" | Select-Object objectId, policyDetail
+$CAPolicies = foreach ($AADIntCAPolicy in $AADIntCAPolicies){
+    Get-AzureADMSConditionalAccessPolicy -PolicyId $AADIntCAPolicy.objectid
+    }
 $ExportDateTime = Get-Date -Format "MM/dd/yyyy HH:mm:ss K"
 $Policies = forEach ($CAPolicy in $CAPolicies){
     
@@ -245,7 +251,7 @@ $Policies = forEach ($CAPolicy in $CAPolicies){
     $SplitStringIncludedUsers = $TrimStringIncludedUsers -split ","
     
     #Lookup AzureAD users by using the ObjectId value
-    $IncludedUsersLookup = Get-AzureADUser | Where-Object {$_.ObjectId -In $SplitStringIncludedUsers}
+    $IncludedUsersLookup = Get-AzureADUser -All:$true | Where-Object {$_.ObjectId -In $SplitStringIncludedUsers}
 
   
 
@@ -272,7 +278,7 @@ $Policies = forEach ($CAPolicy in $CAPolicies){
     $SplitStringExcludedUsers = $TrimStringExcludedUsers -split ","
     
     
-    $ExcludedUsersLookup = Get-AzureADUser | Where-Object {$_.ObjectId -In $SplitStringExcludedUsers}
+    $ExcludedUsersLookup = Get-AzureADUser -All:$true | Where-Object {$_.ObjectId -In $SplitStringExcludedUsers}
 
 
 
@@ -298,7 +304,7 @@ $Policies = forEach ($CAPolicy in $CAPolicies){
     $SplitStringIncludedGroups = $TrimStringIncludedGroups -split ","
     
     
-    $IncludedGroupsLookup = Get-AzureADGroup | Where-Object {$_.ObjectId -In $SplitStringIncludedGroups}
+    $IncludedGroupsLookup = Get-AzureADGroup -All:$true | Where-Object {$_.ObjectId -In $SplitStringIncludedGroups}
   
 
 
@@ -324,7 +330,7 @@ $Policies = forEach ($CAPolicy in $CAPolicies){
     $SplitStringExcludedGroups = $TrimStringExcludedGroups -split ","
     
     
-    $ExcludedGroupsLookup = Get-AzureADGroup | Where-Object {$_.ObjectId -In $SplitStringExcludedGroups}
+    $ExcludedGroupsLookup = Get-AzureADGroup -All:$true | Where-Object {$_.ObjectId -In $SplitStringExcludedGroups}
 
 
     ##########################################################################
@@ -430,7 +436,7 @@ $Policies = forEach ($CAPolicy in $CAPolicies){
     ##########################################################################
     # Lookup 'Included Locations'                                         #
     ##########################################################################
-
+    
     $IncludedLocationsToJson = $IncludedLocations | ConvertTo-Json
 
     #Replace \r\n at the end of each object in the string with ,
@@ -440,12 +446,13 @@ $Policies = forEach ($CAPolicy in $CAPolicies){
     $ReplaceDataInJsonSplittableIncludedLocations = $ReplaceDataInJsonIncludedLocations.Replace('"','')
 
     #Trim the last "," to construct correct amount of strings
-    $TrimStringIncludedLocations= $ReplaceDataInJsonSplittableIncludedLocations.TrimEnd(',')
+    $TrimStringIncludedLocations = $ReplaceDataInJsonSplittableIncludedLocations.TrimEnd(',')
 
-    $IncludedLocationsName = Get-AzureADMSNamedLocationPolicy | Where-Object {$_.Id -in $TrimStringIncludedLocations}
-    
-    
-   
+    #Split the string into multiple strings using "," as a separator
+    $SplitStringIncludedLocations = $TrimStringIncludedLocations -split ","
+
+    $IncludedLocationsName = Get-AzureADMSNamedLocationPolicy | Where-Object {$_.Id -in $SplitStringIncludedLocations}
+
     ##########################################################################
     # Lookup 'Excluded Locations'                                         #
     ##########################################################################
@@ -459,9 +466,12 @@ $Policies = forEach ($CAPolicy in $CAPolicies){
     $ReplaceDataInJsonSplittableExcludedLocations = $ReplaceDataInJsonExcludedLocations.Replace('"','')
 
     #Trim the last "," to construct correct amount of strings
-    $TrimStringExcludedLocations= $ReplaceDataInJsonSplittableExcludedLocations.TrimEnd(',')
+    $TrimStringExcludedLocations = $ReplaceDataInJsonSplittableExcludedLocations.TrimEnd(',')
 
-    $ExcludedLocationsName = Get-AzureADMSNamedLocationPolicy | Where-Object {$_.Id -in $TrimStringExcludedLocations}
+    #Split the string into multiple strings using "," as a separator
+    $SplitStringExcludedLocations = $TrimStringExcludedLocations -split ","
+
+    $ExcludedLocationsName = Get-AzureADMSNamedLocationPolicy | Where-Object {$_.Id -in $SplitStringExcludedLocations}
     
     
     $CACustomObject = New-Object -TypeName PSObject
