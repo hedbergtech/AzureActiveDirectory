@@ -1,5 +1,5 @@
 <#
-.VERSION 1.1
+.VERSION 1.3
 1.0 - Initial release
 1.1 - Added Workaround for Conditional Access Policy export Linux error and some missing code from lookup functions regarding locations.
 1.2 - Added TenantName variable for visibility in Exports
