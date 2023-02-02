@@ -1,5 +1,5 @@
 <#
-.VERSION 1.3
+.VERSION 1.2
 1.0 - Initial release
 1.1 - Added Workaround for Conditional Access Policy export Linux error and some missing code from lookup functions regarding locations.
 1.2 - Added TenantName variable for visibility in Exports
@@ -91,6 +91,47 @@ Get-AADIntAccessTokenForAADGraph -SaveToCache
 
 Start-TSxAADReview
 
+function Export-TSxAzureADUsers{
+Write-Host "Gathering All Azure AD Users" -ForegroundColor Yellow
+$TenantName = (Get-AzureADTenantDetail).DisplayName
+
+$AzureADUsers = Get-AzureADUser -All:$true | Select-Object ObjectId,AccountEnabled,UserPrincipalName,DisplayName,UserType,DirSyncEnabled,LastDirSyncTime,ImmutableId,RefreshTokensValidFromDateTime,ExtensionProperty
+    $AllAzureADUsers = foreach ($AzureADUser in $AzureADUsers){
+            
+            
+            $AADUserId = $AzureADUser.ObjectId
+            $AADUserEnabled = $AzureADUser.AccountEnabled
+            $AADUserPrincipalName = $AzureADUser.UserPrincipalName
+            $AADUserDisplayName = $AzureADUser.DisplayName
+            $AADUserType = $AzureADUser.UserType
+            $AADUserDirSyncEnabled = $AzureADUser.DirsyncEnabled
+            $AADUserLastDirSyncTime = $AzureADUser.LastDirSyncTime
+            $AADImmutableId = $AzureADUser.ImmutableId
+            $AADTokenRefresh = $AzureADUser.RefreshTokensValidFromDateTime
+            $AADCreatedDateTime = $AzureADUser.ExtensionProperty.createdDateTime
+            $AADOnPremDN = $AzureADUser.ExtensionProperty.onPremisesDistinguishedName
+            
+            
+            $UserCustomObject = New-Object -TypeName psobject
+            $UserCustomObject | Add-Member -MemberType NoteProperty -Name "ObjectId" -Value $AADUserId
+            $UserCustomObject | Add-Member -MemberType NoteProperty -Name "AccountEnabled" -Value $AADUserEnabled
+            $UserCustomObject | Add-Member -MemberType NoteProperty -Name "UserPrincipalName" -Value $AADUserPrincipalName
+            $UserCustomObject | Add-Member -MemberType NoteProperty -Name "DisplayName" -Value $AADUserDisplayName
+            $UserCustomObject | Add-Member -MemberType NoteProperty -Name "UserType" -Value $AADUserType
+            $UserCustomObject | Add-Member -MemberType NoteProperty -Name "SyncedOnPremAccount" -Value $AADUserDirSyncEnabled
+            $UserCustomObject | Add-Member -MemberType NoteProperty -Name "ImmutableId" -Value $AADUserImmutableId
+            $UserCustomObject | Add-Member -MemberType NoteProperty -Name "RefreshTokensValidFromDateTime" -Value $AADUserTokenRefresh
+            $UserCustomObject | Add-Member -MemberType NoteProperty -Name "CreatedDateTime" -Value $AADCreatedDateTime
+            $UserCustomObject | Add-Member -MemberType NoteProperty -Name "OnPremDN" -Value $AADOnPremDN
+            $UserCustomObject
+            }
+$UserResult = $AllAzureADUsers
+$UserResult | ConvertTo-Csv | Out-File -FilePath $OutputPath\$TenantName-TSxAzureADUsers.csv -Encoding ascii
+$UserWShell = New-Object -ComObject WScript.Shell
+$UserWShell.Popup("Finished gathering All User Accounts, click OK to continue.",0,"Done",0x1)
+}
+
+Export-TSxAzureADUsers
 
 function Export-TSxAdminAccounts{
     <#param (
@@ -108,7 +149,7 @@ $TenantName = (Get-AzureADTenantDetail).DisplayName
 # Fetch all Azure AD role definitions.
 $AzureADRoleDefinitions = Get-AzureADMSPrivilegedRoleDefinition -ProviderId "aadRoles" -ResourceId $TenantID
 
-    if (!($AzureADRoleDefinition)){
+    if (!($AzureADRoleDefinitions)){
         Write-Host "No AzureAD P2 license found. Exporting Admins without PIM." -ForegroundColor Red
         $InterestingDirectoryRoles = Get-MsolRole
         # Fetch Azure AD role details.
@@ -135,6 +176,10 @@ $AzureADRoleDefinitions = Get-AzureADMSPrivilegedRoleDefinition -ProviderId "aad
                     $AdminCustomObject | Add-Member -MemberType NoteProperty -Name "UserId" -Value $UserAccountDetails.ObjectId
                     $AdminCustomObject | Add-Member -MemberType NoteProperty -Name "UserAccount" -Value $UserAccountDetails.DisplayName
                     $AdminCustomObject | Add-Member -MemberType NoteProperty -Name "UserPrincipalName" -Value $UserAccountDetails.UserPrincipalName
+                    $AdminCustomObject | Add-Member -MemberType NoteProperty -Name "GroupId" -Value $null
+                    $AdminCustomObject | Add-Member -MemberType NoteProperty -Name "GroupName" -Value $null
+                    $AdminCustomObject | Add-Member -MemberType NoteProperty -Name "ServicePrincipalId" -Value $null
+                    $AdminCustomObject | Add-Member -MemberType NoteProperty -Name "ServicePrincipalName" -Value $null
                     $AdminCustomObject | Add-Member -MemberType NoteProperty -Name "AccountCreated" -Value $UserAccountDetails.ExtensionProperty.createdDateTime
                     $AdminCustomObject | Add-Member -MemberType NoteProperty -Name "LastLogon" -Value $LastLogon
                         if ($IsSynced) {
@@ -147,10 +192,17 @@ $AzureADRoleDefinitions = Get-AzureADMSPrivilegedRoleDefinition -ProviderId "aad
                 }
         if ($ObjectLookup.ObjectType -eq "Group"){
                 $GroupDetails = Get-AzureADGroup -ObjectId $RoleAssignment.ObjectId
+                $IsSynced = (Get-AzureADGroup -ObjectId $RoleAssignment.ObjectId | Where-Object {$_.DirSyncEnabled -eq $true}).DirSyncEnabled
         
                 $AdminCustomObject | Add-Member -MemberType NoteProperty -Name "AzureADDirectoryRole" -Value $AzureADDirectoryRole.Name
                 $AdminCustomObject | Add-Member -MemberType NoteProperty -Name "GroupId" -Value $GroupDetails.ObjectId
                 $AdminCustomObject | Add-Member -MemberType NoteProperty -Name "GroupName" -Value $GroupDetails.DisplayName
+                if ($IsSynced) {
+                            $AdminCustomObject | Add-Member -MemberType NoteProperty -Name "SyncedOnPremAccount" -Value 'True'
+                        } 
+                        else {
+                            $AdminCustomObject | Add-Member -MemberType NoteProperty -Name "SyncedOnPremAccount" -Value 'False'
+                        }
                 $AdminCustomObject
            
                 }
@@ -172,16 +224,16 @@ $AzureADRoleDefinitions = Get-AzureADMSPrivilegedRoleDefinition -ProviderId "aad
  
     # List all Azure AD role members (newest first).
     $AdminResult = $AzureADDirectoryRoleMembers
-    #$AdminDateTime = $ExportDateTime | Out-File -FilePath $OutputPath\TSxAzureAdmins.csv -Encoding ascii
-    #$AdminResult | ConvertTo-Csv | Out-File -FilePath $OutputPath\TSxAzureAdmins.csv -Encoding ascii -Append
+    $AdminDateTime = $ExportDateTime | Out-File -FilePath $OutputPath\TSxAzureAdmins.csv -Encoding ascii
+    $AdminResult | ConvertTo-Csv | Out-File -FilePath $OutputPath\TSxAzureAdmins.csv -Encoding ascii -Append
     $AdminDateTime = $ExportDateTime | Out-File -FilePath $OutputPath\$TenantName-TSxAzureAdmins.json -Encoding ascii
     $AdminResult | ConvertTo-Json | Out-File -FilePath $OutputPath\$TenantName-TSxAzureAdmins.json -Encoding ascii
-    $AdminResult | Format-List |Out-File -FilePath $OutputPath\$TenantName-TSxAzureAdmins.txt -Encoding ascii
+    #$AdminResult | Format-List |Out-File -FilePath $OutputPath\$TenantName-TSxAzureAdmins.txt -Encoding ascii
 
 
-    #$MisconfigAdmins = $AdminResult | Out-GridView -PassThru
-    #$AdminDateTimeMisconfig = $ExportDateTime | Out-File -FilePath $OutputPath\TSxMisconfigAzureAdmins.csv -Encoding ascii
-    #$MisconfigAdmins | ConvertTo-Csv -NoTypeInformation | Out-File -FilePath $OutputPath\TSxMisconfigAzureAdmins.csv -Encoding ascii -Append
+    $MisconfigAdmins = $AdminResult | Out-GridView -PassThru -Title "Select any misconfigured Admin Account for separate export."
+    $AdminDateTimeMisconfig = $ExportDateTime | Out-File -FilePath $OutputPath\TSxMisconfigAzureAdmins.csv -Encoding ascii
+    $MisconfigAdmins | ConvertTo-Csv -NoTypeInformation | Out-File -FilePath $OutputPath\TSxMisconfigAzureAdmins.csv -Encoding ascii -Append
     Write-Host "DONE - Gathering Azure AD Admin Accounts. Export can be found in $OutputPath\$TenantName-TSxAzureAdmins.json and $OutputPath\$TenantName-TSxAzureAdmins.txt" -ForegroundColor Yellow
     $AdminWShell = New-Object -ComObject WScript.Shell
     $AdminWShell.Popup("Finished gathering Admin Accounts, click OK to continue.",0,"Done",0x1)
@@ -211,6 +263,10 @@ $AzureADRoleDefinitions = Get-AzureADMSPrivilegedRoleDefinition -ProviderId "aad
                 $AdminCustomObject | Add-Member -MemberType NoteProperty -Name "UserId" -Value $UserAccountDetails.ObjectId
                 $AdminCustomObject | Add-Member -MemberType NoteProperty -Name "UserAccount" -Value $UserAccountDetails.DisplayName
                 $AdminCustomObject | Add-Member -MemberType NoteProperty -Name "UserPrincipalName" -Value $UserAccountDetails.UserPrincipalName
+                $AdminCustomObject | Add-Member -MemberType NoteProperty -Name "GroupId" -Value $null
+                $AdminCustomObject | Add-Member -MemberType NoteProperty -Name "GroupName" -Value $null
+                $AdminCustomObject | Add-Member -MemberType NoteProperty -Name "ServicePrincipalId" -Value $null
+                $AdminCustomObject | Add-Member -MemberType NoteProperty -Name "ServicePrincipalName" -Value $null
                 $AdminCustomObject | Add-Member -MemberType NoteProperty -Name "AccountCreated" -Value $UserAccountDetails.ExtensionProperty.createdDateTime
                 $AdminCustomObject | Add-Member -MemberType NoteProperty -Name "AssignmentState" -Value $AzureADDirectoryRoleAssignment.AssignmentState
                 $AdminCustomObject | Add-Member -MemberType NoteProperty -Name "LastLogon" -Value $LastLogon
@@ -224,11 +280,18 @@ $AzureADRoleDefinitions = Get-AzureADMSPrivilegedRoleDefinition -ProviderId "aad
                 }
         if ($ObjectLookup.ObjectType -eq "Group"){
                 $GroupDetails = Get-AzureADGroup -ObjectId $AzureADDirectoryRoleAssignment.SubjectId
+                $IsSynced = (Get-AzureADGroup -ObjectId $AzureADDirectoryRoleAssignment.SubjectId | Where-Object {$_.DirSyncEnabled -eq $true}).DirSyncEnabled
         
                 $AdminCustomObject | Add-Member -MemberType NoteProperty -Name "AzureADDirectoryRole" -Value ($AzureADRoleDefinitions | Where-Object { $_.Id -eq $AzureADDirectoryRoleAssignment.RoleDefinitionId }).DisplayName
                 $AdminCustomObject | Add-Member -MemberType NoteProperty -Name "GroupId" -Value $GroupDetails.ObjectId
                 $AdminCustomObject | Add-Member -MemberType NoteProperty -Name "GroupName" -Value $GroupDetails.DisplayName
                 $AdminCustomObject | Add-Member -MemberType NoteProperty -Name "AssignmentState" -Value $AzureADDirectoryRoleAssignment.AssignmentState
+                if ($IsSynced) {
+                        $AdminCustomObject | Add-Member -MemberType NoteProperty -Name "SyncedOnPremAccount" -Value 'True'
+                    } 
+                    else {
+                        $AdminCustomObject | Add-Member -MemberType NoteProperty -Name "SyncedOnPremAccount" -Value 'False'
+                    }
                 $AdminCustomObject
                 }
         if ($ObjectLookup.ObjectType -eq "ServicePrincipal"){
@@ -248,17 +311,17 @@ $AzureADRoleDefinitions = Get-AzureADMSPrivilegedRoleDefinition -ProviderId "aad
 
     # List all Azure AD role members (newest first).
     $AdminResult = $AzureADDirectoryRoleMembers
-    #$AdminDateTime = $ExportDateTime | Out-File -FilePath $OutputPath\TSxAzureAdmins.csv -Encoding ascii
-    #$AdminResult | ConvertTo-Csv | Out-File -FilePath $OutputPath\TSxAzureAdmins.csv -Encoding ascii -Append
-    $AdminDateTime = $ExportDateTime | Out-File -FilePath $OutputPath\$TenantName-TSxAzureAdmins.json -Encoding ascii
-    $AdminResult | ConvertTo-Json | Out-File -FilePath $OutputPath\$TenantName-TSxAzureAdmins.json -Encoding ascii
-    $AdminResult | Format-List |Out-File -FilePath $OutputPath\$TenantName-TSxAzureAdmins.txt -Encoding ascii
+    $AdminCsvDateTime = $ExportDateTime | Out-File -FilePath $OutputPath\$TenantName-TSxAzureAdmins.csv -Encoding ascii
+    $AdminResult | ConvertTo-Csv | Out-File -FilePath $OutputPath\$TenantName-TSxAzureAdmins.csv -Encoding ascii -Append
+    $AdminJsonDateTime = $ExportDateTime | Out-File -FilePath $OutputPath\$TenantName-TSxAzureAdmins.json -Encoding ascii
+    $AdminResult | ConvertTo-Json | Out-File -FilePath $OutputPath\$TenantName-TSxAzureAdmins.json -Encoding ascii -Append
+    #$AdminResult | Format-List |Out-File -FilePath $OutputPath\$TenantName-TSxAzureAdmins.txt -Encoding ascii
 
 
-    #$MisconfigAdmins = $AdminResult | Out-GridView -PassThru
-    #$AdminDateTimeMisconfig = $ExportDateTime | Out-File -FilePath $OutputPath\TSxMisconfigAzureAdmins.csv -Encoding ascii
-    #$MisconfigAdmins | ConvertTo-Csv -NoTypeInformation | Out-File -FilePath $OutputPath\TSxMisconfigAzureAdmins.csv -Encoding ascii -Append
-    Write-Host "DONE - Gathering Azure AD Admin Accounts. Export can be found in $OutputPath\$TenantName-TSxAzureAdmins.json and $OutputPath\$TenantName-TSxAzureAdmins.txt" -ForegroundColor Yellow
+    $MisconfigAdmins = $AdminResult | Out-GridView -PassThru
+    $AdminDateTimeMisconfig = $ExportDateTime | Out-File -FilePath $OutputPath\$TenantName-TSxMisConfigAzureAdmins.csv -Encoding ascii
+    $MisconfigAdmins | ConvertTo-Csv -NoTypeInformation | Out-File -FilePath $OutputPath\$TenantName-TSxMisconfigAzureAdmins.csv -Encoding ascii -Append
+    Write-Host "DONE - Gathering Azure AD Admin Accounts. Export can be found in $OutputPath\$TenantName-TSxAzureAdmins.json and $OutputPath\$TenantName-TSxMisConfigAzureAdmins.csv" -ForegroundColor Yellow
     $AdminWShell = New-Object -ComObject WScript.Shell
     $AdminWShell.Popup("Finished gathering Admin Accounts, click OK to continue.",0,"Done",0x1)
     }
@@ -287,7 +350,7 @@ $Policies = forEach ($CAPolicy in $CAPolicies){
     $PolicyId = $CAPolicy.Id
     $PolicyDisplayName = $CAPolicy.DisplayName
     $PolicyState = $CAPolicy.State
-    $IncludedUsers = $CAPolicy.Conditions.Users.IncludeUsers | Out-String
+    $IncludedUsers = $CAPolicy.Conditions.Users.IncludeUsers #| Out-String
     $ExcludedUsers = $CAPolicy.Conditions.Users.ExcludeUsers | Out-String
     $IncludedGroups = $CAPolicy.Conditions.Users.IncludeGroups | Out-String
     $ExcludedGroups = $CAPolicy.Conditions.Users.ExcludeGroups | Out-String
@@ -339,7 +402,7 @@ $Policies = forEach ($CAPolicy in $CAPolicies){
     $SplitStringIncludedUsers = $TrimStringIncludedUsers -split ","
     
     #Lookup AzureAD users by using the ObjectId value
-    $IncludedUsersLookup = Get-AzureADUser -All:$true | Where-Object {$_.ObjectId -In $SplitStringIncludedUsers}
+    $IncludedUsersLookup = Get-AzureADUser -All:$true | Where-Object {$_.ObjectId -In $IncludedUsers}
 
   
 
