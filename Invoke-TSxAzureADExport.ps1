@@ -4,6 +4,7 @@
 1.1 - Added Workaround for Conditional Access Policy export Linux error and some missing code from lookup functions regarding locations.
 1.2 - Added TenantName variable for visibility in Exports
 1.3 - Added flow for Exporting Admins if no Azure AD P2 license is in the tenant.
+1.4 - Added workflow for exporting all Azure AD Users and fixed csv export of admin accounts.
 
 .DESCRIPTION
 This script exports a number of settings from Azure Active Directory to .csv or .json format to quickly be able to review current settings and provide improvements.
