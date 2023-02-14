@@ -24,7 +24,7 @@ Ensure that the disclaimer is read and understood before execution!
 Specify the OutputPath for file export when running the script.
 
 .EXAMPLE
-New-TSxAzureADExport.ps1 -OutputPath C:\tsdata
+Invoke-TSxAzureADExport.ps1 -OutputPath C:\tsdata
 
 .NOTES
 Author: Truesec Cyber Security Incident Response Team
@@ -821,7 +821,7 @@ $CompanySettingAADCSyncStatus = $CompanySettings.DirectorySynchronizationStatus 
 $CompanySettingAADCLastSync = $CompanySettings.LastDirSyncTime | Out-String
 $CompanySettingAADCPHS = $CompanySettings.PasswordSynchronizationEnabled | Out-String
 $CompanySettingAADCLastPHS = $CompanySettings.LastPasswordSyncTime | Out-String
-$CompanySettingSSPR = $CompanySettings.SelfServePasswordResetEnabled | Out-String
+$CompanySettingAdminSSPR = $CompanySettings.SelfServePasswordResetEnabled | Out-String
 
 $CompanyInfo = New-Object -TypeName PSObject
 $CompanyInfo | Add-Member -MemberType NoteProperty -Name "Directory Tenant Name" -Value $CompanySettingTenantName
@@ -836,7 +836,7 @@ $CompanyInfo | Add-Member -MemberType NoteProperty -Name "Directory Azure AD Con
 $CompanyInfo | Add-Member -MemberType NoteProperty -Name "Directory Azure AD Connect Last Sync" -Value $CompanySettingAADCLastSync
 $CompanyInfo | Add-Member -MemberType NoteProperty -Name "Password Hash Sync Enabled" -Value $CompanySettingAADCPHS
 $CompanyInfo | Add-Member -MemberType NoteProperty -Name "Last Password Sync" -Value $CompanySettingAADCLastPHS
-$CompanyInfo | Add-Member -MemberType NoteProperty -Name "SSPR" -Value $CompanySettingSSPR
+$CompanyInfo | Add-Member -MemberType NoteProperty -Name "Admin SSPR" -Value $CompanySettingAdminSSPR
 $CompanyInfo
 
 $CompanyInfoExportResult = $CompanyInfo | ConvertTo-Json
