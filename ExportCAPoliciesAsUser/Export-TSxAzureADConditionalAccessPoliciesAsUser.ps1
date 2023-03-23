@@ -1,7 +1,7 @@
 <#
 .DESCRIPTION
    Exports all Conditional Access Policies in the tenant to a json file
-   You need to run Connect-TSxAAD prior to running this cmdlet
+   You need to connect to AAD Graph, AzureAD and MSOnline prior to running this cmdlet
 .NOTES
    Author: Viktor Hedberg
 .EXAMPLE
