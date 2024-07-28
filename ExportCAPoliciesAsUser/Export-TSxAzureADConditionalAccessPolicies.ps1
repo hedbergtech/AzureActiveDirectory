@@ -1,25 +1,32 @@
 <#
 .DESCRIPTION
    Exports all Conditional Access Policies in the tenant to a json file
-   You need to connect to AAD Graph, AzureAD and MSOnline prior to running this cmdlet
+   You need to run Connect-TSxAAD prior to running this cmdlet
 .NOTES
    Author: Viktor Hedberg
 .EXAMPLE
-   Export-TSxConditionalAccessPoliciesAsUser -OutputPath C:\Exports
+   Export-TSxConditionalAccessPolicies -OutputPath C:\Exports
 .PARAMETER OutputPath
    Specifies the OutputPath for the exports
 
 
 #>
-function Export-TSxAzureADConditionalAccessPoliciesAsUser{
+function Export-TSxAzureADConditionalAccessPolicies{
     param (
         [parameter(Mandatory = $true)]
-        [array]$OutputPath        
+        [string]$OutputPath        
     )
 
+    if(!(Test-Path -Path $OutputPath)){
+        Write-Host $OutputPath "not found, creating Directory" -ForegroundColor Cyan
+        New-Item -ItemType "directory" -Path $OutputPath
+    }
+
+
     Write-Host "Gathering Conditional Access Policies" -ForegroundColor Yellow
-    $TenantName = (Get-AzureADTenantDetail).DisplayName
-    $AADIntCAPolicies = Get-AADIntConditionalAccessPolicies | Where-Object policyType -EQ "18" | Where-Object tenantDefaultPolicy -EQ $null
+    $tenantname = (Get-AzureADDomain | Where-Object {$_.Name -like "*onmicrosoft.com" -and $_.Name -notlike "*mail.onmicrosoft.com"})[0].Name -replace ".onmicrosoft.com",""
+    $at = Get-AADIntAccessTokenForAADGraph
+    $AADIntCAPolicies = Get-AADIntConditionalAccessPolicies -AccessToken $at| Where-Object policyType -EQ "18" | Where-Object tenantDefaultPolicy -EQ $null
     $CurrentItem = 0
     $PercentComplete = 0
     $TotalItems = $AADIntCAPolicies.Count
@@ -47,7 +54,6 @@ function Export-TSxAzureADConditionalAccessPoliciesAsUser{
         $ExcludedLocations = $AADIntCAPolicyDetail.Conditions.Locations.Exclude.Locations | Out-String
         $UserRiskLevels = $AADIntCAPolicyDetail.Conditions.UserRisks.Include.UserRisks | Out-String
         $SignInRiskLevels = $AADIntCAPolicyDetail.Conditions.SignInRisks.Include.SignInRisks | Out-String
-        $IncludedClientAppTypes = $AADIntCAPolicyDetail.Conditions.ClientTypes.Include.ClientTypes | Out-String
         $IncludedDevices = $AADIntCAPolicyDetail.Conditions.DevicePlatforms.Include.DevicePlatforms | Out-String
         $ExcludedDevices = $AADIntCAPolicyDetail.Conditions.DevicePlatforms.Exclude.DevicePlatforms | Out-String
         $DeviceFilterMode = $AADIntCAPolicyDetail.Conditions.Devices.Include.DeviceRule | Out-String
@@ -57,7 +63,6 @@ function Export-TSxAzureADConditionalAccessPoliciesAsUser{
         $TermsOfUse = $AADIntCAPolicyDetail.GrantControls.TermsOfUse | Out-String
         $ApplicationEnforcedRestrictions = $AADIntCAPolicyDetail.SessionControls.ApplicationEnforceRestrictions | Out-String
         $SignInFrequencyValue = $AADIntCAPolicyDetail.SignInFrequencyTimeSpan | Out-String
-        $SessionControls = $AADIntCAPolicyDetail.SessionControls
         $PersistenBrowser = $AADIntCAPolicyDetail.PersistentBrowserSessionMode | Out-String
 
 
@@ -285,7 +290,7 @@ function Export-TSxAzureADConditionalAccessPoliciesAsUser{
         $TrimStringExcludedDevices = $ReplaceDataInJsonSplittableExcludedDevices.TrimEnd(',')
 
         #Split the string into multiple strings using "\," as a separator
-        $SplitStringExcludedDevices = $ReplaceDataInJsonSplittableExcludedDevices.Split("\,")
+        $SplitStringExcludedDevices = $TrimStringExcludedDevices.Split("\,")
 
         $ExcludedDevicesName = Get-AzureADDevice -All:$true | Where-Object {$_.DeviceId -in $SplitStringExcludedDevices}
 
@@ -330,7 +335,6 @@ function Export-TSxAzureADConditionalAccessPoliciesAsUser{
         $CACustomObject | Add-Member -MemberType NoteProperty -Name "Application Enforced Restrictions" -Value $ApplicationEnforcedRestrictions
         $CACustomObject | Add-Member -MemberType NoteProperty -Name "MCAS" -Value $MCAS
         $CACustomObject | Add-Member -MemberType NoteProperty -Name "Sign In Frequency Value" -Value $SignInFrequencyValue
-        #$CACustomObject | Add-Member -MemberType NoteProperty -Name "Sign In Frequency Type" -Value $SignInFrequencyType
         $CACustomObject | Add-Member -MemberType NoteProperty -Name "Persistent Browser Mode" -Value $PersistenBrowser
         $CACustomObject
 
@@ -340,11 +344,6 @@ function Export-TSxAzureADConditionalAccessPoliciesAsUser{
     $CAExportableResult = $CAExportResult.Replace('\r\n',',')
     $CAExportableResult | Out-File -FilePath $OutputPath\$TenantName-TSxCAPolicies.json -Encoding ascii 
 
-    $CAMisconfig = $CAResult | Out-GridView -PassThru -Title "Select any misconfigured CA Policy and click 'OK' to export it. If none, select 'Cancel'."
-    $CAMisconfigExport = $CAMisconfig | ConvertTo-Json
-    $CAMisconfigExportable = $CAMisconfigExport.Replace('\r\n',',')
-    $CAMisconfigExportable | Out-File -FilePath $OutputPath\$TenantName-TSxMisconfigCA.json -Encoding ascii
 
-
-    Write-Host "DONE - Collected All Conditional Access Policies. Export can be found in $OutputPath\$TenantName-TSxCAPolicies.json and $OutputPath\$TenantName-TSxMisconfigCA.json for Misconfigured CA Policies" -ForegroundColor Yellow  
+    Write-Host "DONE - Collected All Conditional Access Policies. Export can be found in $OutputPath\$TenantName-TSxCAPolicies.json" -ForegroundColor Yellow
 }
